@@ -409,12 +409,12 @@ try{var t=localStorage.getItem("dgTheme");if(t==="light"||t==="dark")document.do
       <summary>Sådan regner modellen</summary>
       <p>Hver af de seks faktorer får sin egen procent, hvor 100 % betyder, at faktoren ikke koster noget. Totalscoren er de seks procenter ganget med hinanden, ikke lagt sammen. Derfor kan to middelgode faktorer godt give en spilbar dag, mens én rigtig dårlig faktor trækker hele scoren med sig. Ingen enkelt faktor kan komme under 8 %, så scoren kun rammer bunden, når flere ting fejler samtidig. Tallene er skøn, ikke fysik:</p>
       <ul>
-        <li><strong>Regn</strong>: nedbørssandsynlighed gange intensitet. Vådt greb koster mere end vådt tøj.</li>
+        <li><strong>Regn</strong>: nedbørssandsynlighed gange intensitet. Vådt greb koster mere end vådt tøj. Mangler sandsynlighedstallet, bæres fradraget af den forudsagte mængde alene.</li>
         <li><strong>Vind</strong>: effektiv vind = 0,55 × middelvind + 0,45 × vindstød, fordi det er stødene, der ødelægger et kast. Under 2 m/s koster ingenting, 8 m/s giver 65 %, og 12 m/s giver 27 %. Skovbane vægter vind × 0,55, åben bane × 1,15.</li>
-        <li><strong>Underlag</strong>: mudderindeks bygget på vægtet nedbør de sidste 7 døgn minus fordampning (ET0), justeret for årstid og blandet med jordfugtighed, hvor modellen leverer den. Maksimalt fradrag er 32 point, fordi mudder gør en runde træls, ikke umulig.</li>
+        <li><strong>Underlag</strong>: mudderindeks bygget på vægtet nedbør de sidste 7 døgn minus fordampning (ET0), justeret for årstid og blandet med jordfugtighed, hvor modellen leverer den. Maksimalt fradrag er 32 point, fordi mudder gør en runde træls, ikke umulig. Frossen bund vurderes på den enkelte time, ikke på døgnet: en nat med frost efterfulgt af tøvejr giver blød bund om eftermiddagen, ikke hård.</li>
         <li><strong>Temperatur</strong>: komfortbåndet er 10–23 °C og er sat efter en spiller i bevægelse med taske, ikke en der står stille. Under 10 °C stiger fradraget tiltagende stejlt og giver 40 % ved frysepunktet, og derunder falder det 2,2 point per grad. Over 23 °C stiger fradraget tilsvarende tiltagende: 27 °C koster 10 point, 30 °C koster 23, og 35 °C koster 52. Varme straffes, fordi sved i håndfladen giver tidlige udslip på samme måde som vådt greb, og fordi en runde er 8–12 km gang, hvor kraften falder i takt med væsketabet. Bemærk at både vindafkøling, luftfugtighed og sol allerede ligger i føles-som-tallet, mens vinden desuden trækker ned som selvstændig faktor.</li>
         <li><strong>UV</strong>: påvirker ikke spillet, kun huden, så fradraget er lille med vilje: 2 point ved moderat (indeks 3–5), 3 ved høj, 6 ved meget høj og 10 ved ekstrem. Til gengæld skifter rådet i tasken allerede ved indeks 3, som er WHO's grænse for, hvornår beskyttelse er påkrævet — ikke ved 6. I Danmark ligger UV det meste af sommerhalvåret netop i 3–5, så det er den grænse, der er relevant i praksis.</li>
-        <li><strong>Sigtbarhed</strong>: baseret på Open-Meteos sigtbarhedstal (meter). Over 8 km koster intet, under 3 km (dis/let tåge) begynder fradraget, og under 1 km (tåge) stiger det hurtigt. Det er uafhængigt af soltid, så en tåget middag straffes samme vej som en klar aften.</li>
+        <li><strong>Sigtbarhed</strong>: baseret på Open-Meteos sigtbarhedstal (meter). Skalaen er målt mod banen, ikke mod luftfart: det længste hul er sjældent over 200 m, så sigt over 2 km koster ingenting. Under 800 m stiger fradraget hurtigt, fordi discen da forsvinder i luften. Det er uafhængigt af soltid, så en tåget middag straffes samme vej som en klar aften.</li>
       </ul>
       <p>Fem forhold er vetogrænser, som låser scoren på højst 8 % uanset resten: effektiv vind fra 14 m/s, nedbør fra 6 mm i timen, føles-som fra &minus;12 °C og derunder, føles-som fra 38 °C og derover, og sigt på 100 meter og derunder (tæt tåge). Det er dem, der udløser "Bliv hjemme".</p>
       <p>Uden for dagslys (fra 20 min efter solopgang til 15 min før solnedgang) låses scoren på maks. 8. Fordi vejrdata kun findes for hele timer, men lyset skifter meget på under en time, indsætter time-for-time-oversigten ekstra punkter hvert 15. minut omkring solopgang og solnedgang. De øvrige vejrtal interpoleres lineært mellem de to nærmeste heltimer i de punkter, mens lyset regnes præcist ud fra klokkeslættet – det giver en glidende overgang i stedet for et hårdt spring mellem to timer.</p>
@@ -450,7 +450,22 @@ const TERRAIN = {
 
 function windEff(sp,gu){ return 0.55*(sp||0) + 0.45*(gu||sp||0); }
 function impWind(eff,mul){ const e=Math.max(0,eff-2); return Math.min(100, Math.pow(e,1.45)*2.6*mul); }
-function impRain(prob,mm){ const p=clamp((prob||0)/100,0,1); return Math.min(100, p*(12+Math.min(mm||0,8)*13)); }
+/* Straffen er sandsynlighed gange intensitet, men produktet forsvinder, hvis
+   sandsynlighedsfeltet mangler — og det goer det hos nogle af Open-Meteos
+   modeller. Saa maa maengden baere straffen alene, ellers scorer 4 mm i timen
+   som knastoert vejr.                                                        */
+function impRain(prob,mm){
+  const amt=Math.min(mm||0,8);
+  let p;
+  if(prob==null || isNaN(prob)){
+    p=clamp(amt/0.4,0,1);
+  }else{
+    p=clamp(prob/100,0,1);
+    /* modstridende data: en forudsagt maengde fra 1 mm kan ikke vaere uvaesentlig */
+    if(amt>=1) p=Math.max(p,0.75);
+  }
+  return Math.min(100, p*(12+amt*13));
+}
 /* Komfortbaandet er sat efter en aktiv spiller med taske, ikke en der staar stille.
    Varmesiden er tiltagende stejl ligesom kuldesiden: sved koster greb, og en runde
    paa 8-12 km i varme koster kraft paa de sidste huller. Tallet er foeles-som, som
@@ -473,12 +488,15 @@ function impUv(uv){
   return 10;            /* ekstrem */
 }
 function impMud(idx,mul){ return Math.min(32, (idx||0)*0.30*mul); }
+/* Skalaen skal maales mod banen, ikke mod luftfart: det laengste hul paa en
+   dansk bane er sjaeldent over 200 m. Sigt paa fire kilometer er tyve gange
+   mere end noedvendigt og maa ikke koste noget.                              */
 function impVis(vis){
   if(vis==null) return 0;
-  if(vis>=8000) return 0;
-  if(vis>=3000) return (8000-vis)/5000*15;      /* let dis: 0 til 15 */
-  if(vis>=1000) return 15+(3000-vis)/2000*35;   /* tåge: 15 til 50 */
-  if(vis>=100)  return 50+(1000-vis)/900*38;    /* tæt tåge: 50 til 88 */
+  if(vis>=2000) return 0;                       /* dis, hele fairwayen ses */
+  if(vis>=800)  return (2000-vis)/1200*14;      /* begyndende taage: 0 til 14 */
+  if(vis>=300)  return 14+(800-vis)/500*34;     /* discen forsvinder i luften: 14 til 48 */
+  if(vis>=100)  return 48+(300-vis)/200*40;     /* taet taage: 48 til 88 */
   return 88;
 }
 
@@ -587,7 +605,7 @@ function todayIdxOf(wx){ return wx.daily.time.indexOf(localNow(wx).toISOString()
 
 function mudForDay(wx, soil, di){
   const d=wx.daily;
-  if(di<0||di>=d.time.length) return {idx:30, frozen:false};
+  if(di<0||di>=d.time.length) return {idx:30, couldFreeze:false};
   const P = k => (d.precipitation_sum[di-k]!=null? d.precipitation_sum[di-k]:0);
   const E = k => (d.et0_fao_evapotranspiration[di-k]!=null? d.et0_fao_evapotranspiration[di-k]:1.5);
   const ti = todayIdxOf(wx);
@@ -603,11 +621,18 @@ function mudForDay(wx, soil, di){
     const w = ahead===0? 0.45 : 0.20;
     idx = (1-w)*idx + w*sIdx;
   }
-  const frozen = (d.temperature_2m_min[di]!=null && d.temperature_2m_min[di]<=-3);
-  return {idx:Math.round(idx), frozen};
+  /* Doegnets minimum siger kun, OM bunden naaede at fryse. Om den er frossen
+     paa et givet tidspunkt afgoeres af timens egen temperatur — ellers faar
+     en eftermiddag med toevejr predikatet "haard bund", hvor den i
+     virkeligheden er paa sit vaerste.                                       */
+  const couldFreeze = (d.temperature_2m_min[di]!=null && d.temperature_2m_min[di]<=-3);
+  return {idx:Math.round(idx), couldFreeze:couldFreeze};
 }
-function mudLabel(m){
-  if(m.frozen) return "Frossen og hård";
+function isFrozen(mud,tempNow){
+  return !!(mud && mud.couldFreeze && tempNow!=null && !isNaN(tempNow) && tempNow<=0);
+}
+function mudLabel(m,frozen){
+  if(frozen) return "Frossen og hård";
   const i=m.idx;
   if(i<15) return "Tørt og fast";
   if(i<35) return "Let fugtigt";
@@ -695,10 +720,11 @@ function scoreVals(wx,hv,timeStr,mud){
   const T=TERRAIN[S.terrain];
   const eff=windEff(hv.wind_speed_10m, hv.wind_gusts_10m);
   const lp=lightPen(wx,timeStr);
+  const frozen=isFrozen(mud, hv.temperature_2m);
   const parts={
     regn: impRain(hv.precipitation_probability, hv.precipitation),
     vind: impWind(eff, T.wind),
-    underlag: mud.frozen? 6 : impMud(mud.idx, T.mud),
+    underlag: frozen? 6 : impMud(mud.idx, T.mud),
     temperatur: impTemp(hv.apparent_temperature),
     uv: impUv(hv.uv_index),
     sigt: impVis(hv.visibility),
@@ -714,7 +740,7 @@ function scoreVals(wx,hv,timeStr,mud){
   if(critical) score=Math.min(score,8);
   const dark=lp>=100;
   if(dark) score=Math.min(score,8);
-  return {score,parts,eff,dark,critical};
+  return {score,parts,eff,dark,critical,frozen};
 }
 function hourVals(h,i){
   return {
@@ -724,7 +750,8 @@ function hourVals(h,i){
     wind_speed_10m: h.wind_speed_10m[i],
     wind_gusts_10m: h.wind_gusts_10m[i],
     uv_index: h.uv_index[i],
-    visibility: h.visibility[i]
+    visibility: h.visibility[i],
+    temperature_2m: h.temperature_2m[i]
   };
 }
 function scoreAt(wx,i,mud){
@@ -837,14 +864,14 @@ function render(){
       "Effektiv vind "+fmt(cur.eff,1)+" m/s på "+TERRAIN[S.terrain].name+"."],
     ["Regn","regn", cur.parts.regn, fmt(h.precipitation_probability[i])+" % / "+fmt(h.precipitation[i],1)+" mm",
       h.precipitation[i]>0.3? "Vådt greb koster mere præcision end vådt tøj." : "Tørt greb lige nu."],
-    ["Underlag","underlag", cur.parts.underlag, mudLabel(mud)+" ("+mud.idx+")",
+    ["Underlag","underlag", cur.parts.underlag, mudLabel(mud,cur.frozen)+" ("+mud.idx+")",
       "Baseret på nedbør og fordampning de seneste 7 døgn"+(S.soil!=null?" plus målt jordfugtighed":"")+"."],
     ["Temperatur","temperatur", cur.parts.temperatur, fmt(h.temperature_2m[i],1)+" °C, føles "+fmt(h.apparent_temperature[i],1)+" °C",
       tempNote(h.apparent_temperature[i])],
     ["UV","uv", cur.parts.uv, "Indeks "+fmt(h.uv_index[i],1),
       uvNote(h.uv_index[i])],
     ["Sigtbarhed","sigt", cur.parts.sigt, h.visibility[i]!=null? fmt(h.visibility[i]/1000,1)+" km" : "Ukendt",
-      h.visibility[i]!=null && h.visibility[i]<3000? "Tåge/dis begrænser hvor langt du kan se landingszonen." : "God sigt."],
+      h.visibility[i]!=null && h.visibility[i]<2000? "Tåge begrænser hvor langt du kan se landingszonen." : "God sigt."],
     ["Lys","lys", cur.parts.lys, sunLabel(wx,h.time[i]), lysNote(cur.parts.lys)]
   ];
   const FP = F.map(f=>({f:f, pct:clamp(Math.round(100-f[2]),0,100)}));
@@ -945,13 +972,13 @@ function render(){
   else if(h.apparent_temperature[i]<5) tips.push("<strong>Kuldeplast.</strong> Under 5 °C bliver DX og D-line stive. GStar og gummiagtige putterplast holder grebet. Varm skulderen ordentligt op inden fuld kraft.");
   else if(h.apparent_temperature[i]>=31) tips.push("<strong>Varmen er dagens risiko.</strong> Føles som "+fmt(h.apparent_temperature[i],1)+" °C. En runde er to timers arbejde i solen: regn med en liter vand i timen, hold pauserne i skyggen, og overvej ni huller frem for atten. Kraften i rotationen falder, længe før du selv opdager det.");
   else if(h.apparent_temperature[i]>=27) tips.push("<strong>Sved i grebet.</strong> Føles som "+fmt(h.apparent_temperature[i],1)+" °C. Et tørt håndklæde og en pose kridt redder flere kast end noget discvalg, for en glat håndflade slipper discen for tidligt og sender den op til højre. Varm luft er tyndere og plastikken blødere, så tag en grad mere overstabilt end normalt.");
-  if(mud.frozen) tips.push("<strong>Frossen bund.</strong> Hårdt underlag giver lange skid, men også glatte nedslagsfødder. Kort x-step, ingen fuld udskridning.");
-  else if(mud.idx>=60) tips.push("<strong>Fodfæstet er dagens risiko.</strong> "+mudLabel(mud)+" bund. Kort x-step eller stående kast, sko med greb. Nedslagsfoden er der, skader sker.");
+  if(cur.frozen) tips.push("<strong>Frossen bund.</strong> Hårdt underlag giver lange skid, men også glatte nedslagsfødder. Kort x-step, ingen fuld udskridning.");
+  else if(mud.idx>=60) tips.push("<strong>Fodfæstet er dagens risiko.</strong> "+mudLabel(mud,false)+" bund. Kort x-step eller stående kast, sko med greb. Nedslagsfoden er der, skader sker.");
   else if(mud.idx>=35) tips.push("<strong>Blød bund.</strong> Regn med lidt kortere kast, discen ruller ikke ud. Sigt efter at lande på fairway frem for at plukke afstand.");
   if(h.uv_index[i]>=8) tips.push("<strong>Solen er dagens risiko.</strong> UV "+fmt(h.uv_index[i],1)+". Læg helst runden uden om timerne midt på dagen. Spiller du alligevel: solcreme faktor 30+, dækkede skuldre og en pause i skyggen undervejs.");
   else if(h.uv_index[i]>=6) tips.push("<strong>Solcreme og genpåføring.</strong> UV "+fmt(h.uv_index[i],1)+". Faktor 30+, kasket og solbriller. Sveden tager det meste undervejs, så smør igen efter ni huller.");
   else if(h.uv_index[i]>=3) tips.push("<strong>Solcreme i tasken.</strong> UV "+fmt(h.uv_index[i],1)+". To timer i det fri rækker til en solskoldning. Faktor 30 på ansigt, nakke og arme plus kasket. Nakke og ører brænder først, fordi du kigger opad efter discen.");
-  if(h.visibility[i]!=null && h.visibility[i]<2000) tips.push("<strong>Tæt tåge.</strong> Sigt under "+fmt(h.visibility[i]/1000,1)+" km gør det svært at spotte discs i landingszonen og andre spillere. Spil kortere hul-for-hul og hold øje med discens landingssted, ikke kun kastet.");
+  if(h.visibility[i]!=null && h.visibility[i]<1200) tips.push("<strong>Tæt tåge.</strong> Sigt under "+fmt(h.visibility[i]/1000,1)+" km gør det svært at spotte discs i landingszonen og andre spillere. Spil kortere hul-for-hul og hold øje med discens landingssted, ikke kun kastet.");
   if(!tips.length) tips.push("<strong>Ingen særlige forholdsregler.</strong> Standardtaske og en flaske vand. Brug den slags dag til at arbejde med linjer frem for afstand.");
   el("tips").innerHTML=tips.map(t=>"<li>"+t+"</li>").join("");
 
@@ -977,10 +1004,12 @@ function weekHourRange(wx){
 
 function dayMeta(wx,di,mud){
   const d=wx.daily, uv=d.uv_index_max[di];
+  /* et doegn kaldes kun frossent, hvis det aldrig naar over frysepunktet */
+  const frostHeleDagen = mud.couldFreeze && d.temperature_2m_max[di]!=null && d.temperature_2m_max[di]<=0;
   return fmt(d.temperature_2m_max[di])+"°/"+fmt(d.temperature_2m_min[di])+"°"
     + " &middot; "+fmt(d.precipitation_sum[di],1)+" mm ("+fmt(d.precipitation_probability_max[di])+" %)"
     + " &middot; "+fmt(d.wind_speed_10m_max[di],1)+"/"+fmt(d.wind_gusts_10m_max[di],0)+" m/s "+dirName(d.wind_direction_10m_dominant[di])
-    + " &middot; "+mudLabel(mud)
+    + " &middot; "+mudLabel(mud,frostHeleDagen)
     + ' <span class="uvchip" style="background:'+uvColor(uv)+';color:'+onColor(uvColor(uv))+'">UV '+fmt(uv,1)+'</span>';
 }
 
