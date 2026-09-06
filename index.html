@@ -418,7 +418,7 @@ try{var t=localStorage.getItem("dgTheme");if(t==="light"||t==="dark")document.do
       </ul>
       <p>Fem forhold er vetogrænser, som låser scoren på højst 8 % uanset resten: effektiv vind fra 14 m/s, nedbør fra 6 mm i timen, føles-som fra &minus;12 °C og derunder, føles-som fra 38 °C og derover, og sigt på 100 meter og derunder (tæt tåge). Det er dem, der udløser "Bliv hjemme".</p>
       <p>Uden for dagslys (fra 20 min efter solopgang til 15 min før solnedgang) låses scoren på maks. 8. Fordi vejrdata kun findes for hele timer, men lyset skifter meget på under en time, indsætter time-for-time-oversigten ekstra punkter hvert 15. minut omkring solopgang og solnedgang. De øvrige vejrtal interpoleres lineært mellem de to nærmeste heltimer i de punkter, mens lyset regnes præcist ud fra klokkeslættet – det giver en glidende overgang i stedet for et hårdt spring mellem to timer.</p>
-      <p>Ugeoversigten henter desuden ECMWF-ensemblet, hvor 51 ligevægtige modelkørsler beskriver, hvor usikker prognosen er. Scoren beregnes for hver kørsel, og medianen vises, fordi et enkelt deterministisk løb er upålideligt syv døgn frem. Ensemblet dækker ikke UV, sigtbarhed og føles-som: de to første tages fra den almindelige prognose, mens føles-som rekonstrueres ved at lægge kørslens egen temperaturafvigelse oven på den, så fugt- og solbidraget bevares. Fejler kaldet, falder ugen tilbage på den almindelige prognose.</p><p>Data: Open-Meteo (vejr, jordfugtighed, ET0, ECMWF-ensemble). Banetypen vælger du selv, fordi den ændrer vægtningen af vind og mudder.</p>
+      <p>Ugeoversigten henter desuden ECMWF-ensemblet, hvor 51 ligevægtige modelkørsler beskriver, hvor usikker prognosen er. Scoren beregnes for hver kørsel, og medianen vises, fordi et enkelt deterministisk løb er upålideligt syv døgn frem. Ensemblet dækker ikke UV, sigtbarhed og føles-som: de to første tages fra den almindelige prognose, mens føles-som rekonstrueres ved at lægge kørslens egen temperaturafvigelse oven på den, så fugt- og solbidraget bevares. Detaljelinjen under matricen kommer samme sted fra: temperatur, nedbør og vind vises som medianen på tværs af kørslerne, og nedbørssandsynligheden bliver dér det, den egentlig betyder — andelen af kørsler med målbar nedbør. Hvert felt medianberegnes for sig, så tallene tilsammen ikke svarer til én bestemt kørsel, men beskriver et typisk udfald. Vindretning, UV og underlag findes ikke i ensemblet og bliver stående på den almindelige prognose. Fejler kaldet, falder ugen tilbage på den almindelige prognose.</p><p>Data: Open-Meteo (vejr, jordfugtighed, ET0, ECMWF-ensemble). Banetypen vælger du selv, fordi den ændrer vægtningen af vind og mudder.</p>
     </details>
   </div>
 
@@ -433,7 +433,7 @@ try{var t=localStorage.getItem("dgTheme");if(t==="light"||t==="dark")document.do
 
 const S = {
   lat:null, lon:null, label:"Din position", intro:true,
-  wx:null, soil:null, mud:null, viewDay:null, weekSel:null, ens:null, ensCache:null,
+  wx:null, soil:null, mud:null, viewDay:null, weekSel:null, ens:null, ensCache:null, ensDays:null,
   terrain:"blandet"
 };
 
@@ -688,6 +688,41 @@ function ensembleScores(wx,E,timeStr,detIdx,mud){
   scores.sort((a,b)=>a-b);
   const q=f=>scores[Math.min(scores.length-1,Math.floor(f*scores.length))];
   return {median:q(0.5), lo:q(0.1), hi:q(0.9), n:scores.length};
+}
+
+/* Doegnvaerdier fra ensemblet. Hvert felt tages som medianen paa tvaers af
+   medlemmerne, saa raekken beskriver et typisk udfald i stedet for ét loeb.
+   Medianerne regnes felt for felt, saa tallene tilsammen svarer ikke til én
+   bestemt koersel — det er den saedvanlige maade at opsummere et ensemble paa.
+   Nedboerssandsynligheden bliver her det, den egentlig betyder: andelen af
+   medlemmer med maalbar nedboer.                                            */
+function ensembleDay(E,day){
+  const idx=[];
+  for(let hh=0;hh<24;hh++){
+    const i=E.idx[day+"T"+String(hh).padStart(2,"0")];
+    if(i!=null) idx.push(i);
+  }
+  if(idx.length<12) return null;                  /* et halvt doegn er ikke nok */
+  const tmax=[],tmin=[],psum=[],wmax=[],gmax=[];
+  let vaade=0;
+  for(let m=0;m<E.n;m++){
+    const T=E.h[E.keys.temperature_2m[m]], P=E.h[E.keys.precipitation[m]];
+    const W=E.h[E.keys.wind_speed_10m[m]], G=E.h[E.keys.wind_gusts_10m[m]];
+    let hi=-Infinity, lo=Infinity, sum=0, w=0, g=0, set=false;
+    for(const i of idx){
+      if(T[i]!=null){ if(T[i]>hi) hi=T[i]; if(T[i]<lo) lo=T[i]; set=true; }
+      if(P[i]!=null) sum+=P[i];
+      if(W[i]!=null && W[i]>w) w=W[i];
+      if(G[i]!=null && G[i]>g) g=G[i];
+    }
+    if(!set) continue;
+    tmax.push(hi); tmin.push(lo); psum.push(sum); wmax.push(w); gmax.push(g);
+    if(sum>=0.2) vaade++;                          /* maalbar nedboer */
+  }
+  if(tmax.length<2) return null;
+  const med=arr=>{ arr.sort((x,y)=>x-y); return arr[Math.floor(arr.length/2)]; };
+  return { tmax:med(tmax), tmin:med(tmin), psum:med(psum), wmax:med(wmax), gmax:med(gmax),
+           pprob:Math.round(vaade/tmax.length*100), n:tmax.length };
 }
 
 /* ---------- mud index ---------- */
@@ -1094,11 +1129,21 @@ function weekHourRange(wx){
 
 function dayMeta(wx,di,mud){
   const d=wx.daily, uv=d.uv_index_max[di];
+  /* Ensemblet daekker temperatur, nedboer og vind, men hverken vindretning,
+     UV eller underlag — de tre bliver derfor staaende paa det deterministiske
+     loeb, saa linjen ikke lover mere praecision end den har.                 */
+  const E=ensDay(d.time[di]);
+  const tmax = E? E.tmax : d.temperature_2m_max[di];
+  const tmin = E? E.tmin : d.temperature_2m_min[di];
+  const psum = E? E.psum : d.precipitation_sum[di];
+  const pprob= E? E.pprob: d.precipitation_probability_max[di];
+  const wmax = E? E.wmax : d.wind_speed_10m_max[di];
+  const gmax = E? E.gmax : d.wind_gusts_10m_max[di];
   /* et doegn kaldes kun frossent, hvis det aldrig naar over frysepunktet */
-  const frostHeleDagen = mud.couldFreeze && d.temperature_2m_max[di]!=null && d.temperature_2m_max[di]<=0;
-  return fmt(d.temperature_2m_max[di])+"°/"+fmt(d.temperature_2m_min[di])+"°"
-    + " &middot; "+fmt(d.precipitation_sum[di],1)+" mm ("+fmt(d.precipitation_probability_max[di])+" %)"
-    + " &middot; "+fmt(d.wind_speed_10m_max[di],1)+"/"+fmt(d.wind_gusts_10m_max[di],0)+" m/s "+dirName(d.wind_direction_10m_dominant[di])
+  const frostHeleDagen = mud.couldFreeze && tmax!=null && tmax<=0;
+  return fmt(tmax)+"°/"+fmt(tmin)+"°"
+    + " &middot; "+fmt(psum,1)+" mm ("+fmt(pprob)+" %)"
+    + " &middot; "+fmt(wmax,1)+"/"+fmt(gmax,0)+" m/s "+dirName(d.wind_direction_10m_dominant[di])
     + " &middot; "+mudLabel(mud,frostHeleDagen)
     + ' <span class="uvchip" style="background:'+uvColor(uv)+';color:'+onColor(uvColor(uv))+'">UV '+fmt(uv,1)+'</span>';
 }
@@ -1106,6 +1151,12 @@ function dayMeta(wx,di,mud){
 /* Ensemblescoren afhaenger af banetypen, saa cachen nulstilles naar den skifter.
    Uden cachen ville 112 ruder gange 51 medlemmer blive regnet forfra ved hver
    eneste gentegning — ogsaa naar man bare skifter tema.                      */
+function ensDay(day){
+  if(!S.ens) return null;
+  if(!S.ensDays) S.ensDays={};
+  if(!(day in S.ensDays)) S.ensDays[day]=ensembleDay(S.ens,day);
+  return S.ensDays[day];
+}
 function ensCell(wx,timeStr,detIdx,mud){
   if(!S.ens) return null;
   if(!S.ensCache || S.ensCache.terrain!==S.terrain) S.ensCache={terrain:S.terrain, map:{}};
@@ -1270,10 +1321,10 @@ async function loadFor(lat,lon,label,namePromise,src){
     if(namePromise) namePromise.then(n=>{ if(n && S.lat===lat && S.lon===lon) setPlace(n); });
     /* ensemblet er en efterfoelgende forbedring af ugeoversigten og maa aldrig
        forsinke foerste visning eller vaelte siden, hvis kaldet fejler */
-    S.ens=null; S.ensCache=null;
+    S.ens=null; S.ensCache=null; S.ensDays=null;
     getEnsemble(lat,lon).then(j=>{
       if(S.lat!==lat || S.lon!==lon || !j) return;
-      S.ens=prepEnsemble(j); S.ensCache=null;
+      S.ens=prepEnsemble(j); S.ensCache=null; S.ensDays=null;
       if(S.wx) renderWeek();
     });
   }catch(e){ setStatus(e.message,true); }
