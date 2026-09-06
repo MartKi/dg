@@ -418,7 +418,7 @@ try{var t=localStorage.getItem("dgTheme");if(t==="light"||t==="dark")document.do
       </ul>
       <p>Fem forhold er vetogrænser, som låser scoren på højst 8 % uanset resten: effektiv vind fra 14 m/s, nedbør fra 6 mm i timen, føles-som fra &minus;12 °C og derunder, føles-som fra 38 °C og derover, og sigt på 100 meter og derunder (tæt tåge). Det er dem, der udløser "Bliv hjemme".</p>
       <p>Uden for dagslys (fra 20 min efter solopgang til 15 min før solnedgang) låses scoren på maks. 8. Fordi vejrdata kun findes for hele timer, men lyset skifter meget på under en time, indsætter time-for-time-oversigten ekstra punkter hvert 15. minut omkring solopgang og solnedgang. De øvrige vejrtal interpoleres lineært mellem de to nærmeste heltimer i de punkter, mens lyset regnes præcist ud fra klokkeslættet – det giver en glidende overgang i stedet for et hårdt spring mellem to timer.</p>
-      <p>Ugeoversigten henter desuden ECMWF-ensemblet, hvor 51 ligevægtige modelkørsler beskriver, hvor usikker prognosen er. Scoren beregnes for hver kørsel, og medianen vises, fordi et enkelt deterministisk løb er upålideligt syv døgn frem. Ensemblet dækker ikke UV, sigtbarhed og føles-som: de to første tages fra den almindelige prognose, mens føles-som rekonstrueres ved at lægge kørslens egen temperaturafvigelse oven på den, så fugt- og solbidraget bevares. Detaljelinjen under matricen kommer samme sted fra: temperatur, nedbør og vind vises som medianen på tværs af kørslerne, og nedbørssandsynligheden bliver dér det, den egentlig betyder — andelen af kørsler med målbar nedbør. Hvert felt medianberegnes for sig, så tallene tilsammen ikke svarer til én bestemt kørsel, men beskriver et typisk udfald. Vindretning, UV og underlag findes ikke i ensemblet og bliver stående på den almindelige prognose. Fejler kaldet, falder ugen tilbage på den almindelige prognose.</p><p>Data: Open-Meteo (vejr, jordfugtighed, ET0, ECMWF-ensemble). Banetypen vælger du selv, fordi den ændrer vægtningen af vind og mudder.</p>
+      <p>Hele dashboardet henter ECMWF-ensemblet, hvor 51 ligevægtige modelkørsler beskriver, hvor usikker prognosen er. Scoren beregnes for hver kørsel, og medianen vises — ikke scoren af et gennemsnitsvejr, for modellen er ikke-lineær, og de to er ikke det samme. De viste tal er tilsvarende medianer, felt for felt, så de tilsammen ikke svarer til én bestemt kørsel, men beskriver et typisk udfald. Faktorsøjlerne regnes derimod ud fra medianværdierne, så de kan afvige et par point fra totalen. Ensemblet dækker ikke UV og underlag, og leverer ikke altid føles-som, sigtbarhed og vindretning. Det manglende tages fra den almindelige prognose, og føles-som rekonstrueres om nødvendigt ved at lægge kørslens egen temperaturafvigelse oven på den, så fugt- og solbidraget bevares. Kaldet beder først om alle variable og falder tilbage til kernen (temperatur, nedbør, vind, vindstød), hvis modellen afviser resten. Detaljelinjen under ugematricen kommer samme sted fra: temperatur, nedbør og vind vises som medianen på tværs af kørslerne, og nedbørssandsynligheden bliver dér det, den egentlig betyder — andelen af kørsler med målbar nedbør. Hvert felt medianberegnes for sig, så tallene tilsammen ikke svarer til én bestemt kørsel, men beskriver et typisk udfald. Vindretning, UV og underlag findes ikke i ensemblet og bliver stående på den almindelige prognose. Fejler kaldet, falder ugen tilbage på den almindelige prognose.</p><p>Data: Open-Meteo (vejr, jordfugtighed, ET0, ECMWF-ensemble). Banetypen vælger du selv, fordi den ændrer vægtningen af vind og mudder.</p>
     </details>
   </div>
 
@@ -433,7 +433,7 @@ try{var t=localStorage.getItem("dgTheme");if(t==="light"||t==="dark")document.do
 
 const S = {
   lat:null, lon:null, label:"Din position", intro:true,
-  wx:null, soil:null, mud:null, viewDay:null, weekSel:null, ens:null, ensCache:null, ensDays:null,
+  wx:null, soil:null, mud:null, viewDay:null, weekSel:null, ens:null, ensCache:null, ensDays:null, mudDays:null,
   terrain:"blandet"
 };
 
@@ -531,12 +531,12 @@ function band(score){
   return {c:PAL.band5, t:"Bliv hjemme",
     a:"Forholdene trækker hårdt. Overvej putting- eller feltræning i stedet, eller find et bedre tidsrum i ugeoversigten."};
 }
-function critReason(h,i,eff){
+function critReason(v,eff){
   if(eff>=14) return "vindstød og middelvind på tilsammen "+fmt(eff,1)+" m/s effektiv vind";
-  if((h.precipitation[i]||0)>=6) return "kraftig nedbør på "+fmt(h.precipitation[i],1)+" mm i timen";
-  if((h.apparent_temperature[i]||0)<=-12) return "streng frost, føles som "+fmt(h.apparent_temperature[i],1)+" °C";
-  if((h.apparent_temperature[i]||0)>=38) return "ekstrem varme, føles som "+fmt(h.apparent_temperature[i],1)+" °C";
-  if(h.visibility[i]!=null && h.visibility[i]<=100) return "tæt tåge med "+fmt(h.visibility[i])+" meters sigt";
+  if((v.precipitation||0)>=6) return "kraftig nedbør på "+fmt(v.precipitation,1)+" mm i timen";
+  if((v.apparent_temperature||0)<=-12) return "streng frost, føles som "+fmt(v.apparent_temperature,1)+" °C";
+  if((v.apparent_temperature||0)>=38) return "ekstrem varme, føles som "+fmt(v.apparent_temperature,1)+" °C";
+  if(v.visibility!=null && v.visibility<=100) return "tæt tåge med "+fmt(v.visibility)+" meters sigt";
   return "kritisk vejr";
 }
 function uvColor(uv){
@@ -611,15 +611,21 @@ async function getSoil(lat,lon){
    derfor fra det deterministiske loeb, og foeles-som rekonstrueres ved at
    laegge medlemmets temperaturafvigelse oven paa den deterministiske
    foeles-som — saa fugt- og solbidraget bevares.                            */
-const ENS_VARS=["temperature_2m","precipitation","wind_speed_10m","wind_gusts_10m"];
+/* Kernen skal vaere der, for at ensemblet overhovedet kan bruges. Resten er
+   oenskeliste: kan modellen levere dem, bruges de, ellers udfyldes hullerne
+   fra det deterministiske loeb. Jeg har ikke kunnet kalde endpointet under
+   udviklingen, saa koden spoerger foerst om det hele og falder tilbage til
+   kernen, hvis svaret afvises — i stedet for at satse alt paa ét gaet.      */
+const ENS_CORE=["temperature_2m","precipitation","wind_speed_10m","wind_gusts_10m"];
+const ENS_WISH=ENS_CORE.concat(["apparent_temperature","wind_direction_10m","cloud_cover","visibility"]);
 
-async function getEnsemble(lat,lon){
+async function ensFetch(lat,lon,vars){
   const ctl=new AbortController();
   const t=setTimeout(()=>ctl.abort(),14000);
   try{
     const u="https://ensemble-api.open-meteo.com/v1/ensemble?latitude="+lat.toFixed(4)
       +"&longitude="+lon.toFixed(4)+"&models=ecmwf_ifs025"
-      +"&hourly="+ENS_VARS.join(",")
+      +"&hourly="+vars.join(",")
       +"&forecast_days=7&timezone=auto&wind_speed_unit=ms";
     const r=await fetch(u,{signal:ctl.signal});
     if(!r.ok) return null;
@@ -628,6 +634,9 @@ async function getEnsemble(lat,lon){
   }catch(e){ return null; }
   finally{ clearTimeout(t); }
 }
+async function getEnsemble(lat,lon){
+  return (await ensFetch(lat,lon,ENS_WISH)) || (await ensFetch(lat,lon,ENS_CORE));
+}
 
 /* Feltnavnene er <variabel>_memberNN, men om kontrolloebet baerer suffiks og
    hvor nummereringen starter er ikke noget vi behoever at vide: medlemmerne
@@ -635,59 +644,147 @@ async function getEnsemble(lat,lon){
 function memberKeys(hourly,base){
   const out=[];
   Object.keys(hourly).forEach(k=>{
-    if(k===base || k.indexOf(base+"_member")===0){
-      if(Array.isArray(hourly[k])) out.push(k);
-    }
+    if((k===base || k.indexOf(base+"_member")===0) && Array.isArray(hourly[k])) out.push(k);
   });
   return out.sort();
 }
-
 function prepEnsemble(ens){
   const h=ens.hourly, keys={}, idx={};
-  for(const v of ENS_VARS){
-    keys[v]=memberKeys(h,v);
-    if(!keys[v].length) return null;              /* variablen mangler helt */
+  for(const v of ENS_CORE){
+    const k=memberKeys(h,v);
+    if(!k.length) return null;                      /* kernen mangler */
+    keys[v]=k;
   }
-  /* alle variable skal have lige mange medlemmer, ellers er svaret ikke brugbart */
-  const n=keys[ENS_VARS[0]].length;
-  if(n<2 || ENS_VARS.some(v=>keys[v].length!==n)) return null;
+  const n=keys[ENS_CORE[0]].length;
+  if(n<2 || ENS_CORE.some(v=>keys[v].length!==n)) return null;
+  /* de oevrige tages med, hvis de kom med samme antal medlemmer */
+  for(const v of ENS_WISH){
+    if(keys[v]) continue;
+    const k=memberKeys(h,v);
+    if(k.length===n) keys[v]=k;
+  }
   h.time.forEach((t,i)=>{ idx[t.slice(0,13)]=i; });
-  return {h:h, keys:keys, n:n, idx:idx};
+  return {h:h, keys:keys, n:n, idx:idx, vars:Object.keys(keys)};
 }
 
-/* Scoren for én time paa tvaers af alle medlemmer. Returnerer medianen samt
-   spaendvidden, saa usikkerheden kan vises for den valgte rude.             */
-function ensembleScores(wx,E,timeStr,detIdx,mud){
-  const ei=E.idx[timeStr.slice(0,13)];
+/* Raa deterministiske vaerdier for én time — grundlaget der udfyldes med. */
+function hourDet(h,i){
+  return {
+    temperature_2m: h.temperature_2m[i],
+    apparent_temperature: h.apparent_temperature[i],
+    precipitation: h.precipitation[i],
+    precipitation_probability: h.precipitation_probability[i],
+    wind_speed_10m: h.wind_speed_10m[i],
+    wind_gusts_10m: h.wind_gusts_10m[i],
+    wind_direction_10m: h.wind_direction_10m[i],
+    uv_index: h.uv_index[i],
+    cloud_cover: h.cloud_cover[i],
+    visibility: h.visibility[i]
+  };
+}
+
+/* Ét medlems vaerdier. frac>0 interpolerer mod naeste time, saa skumringens
+   mellempunkter regnes paa noejagtig samme grundlag som heltimerne.        */
+function ensMember(wx,E,ei,m,frac,det){
+  const g=v=>{
+    const k=E.keys[v]; if(!k) return undefined;
+    const A=E.h[k[m]]; if(!A) return undefined;
+    const a=A[ei];
+    if(!frac) return a;
+    const b=A[ei+1];
+    return (a==null||b==null) ? a : a+(b-a)*frac;
+  };
+  const t=g("temperature_2m");
+  let ap=g("apparent_temperature");
+  if(ap===undefined || ap===null){
+    /* uden foeles-som i ensemblet laegges medlemmets temperaturafvigelse paa
+       det deterministiske tal, saa fugt- og solbidraget bevares */
+    ap=(det.temperature_2m!=null && det.apparent_temperature!=null && t!=null)
+      ? det.apparent_temperature+(t-det.temperature_2m) : det.apparent_temperature;
+  }
+  const v={
+    temperature_2m: t!=null? t : det.temperature_2m,
+    apparent_temperature: ap,
+    precipitation: g("precipitation"),
+    /* inden for ét medlem er nedboeren et faktum, ikke en sandsynlighed:
+       impRain udleder da straffen af maengden alene */
+    precipitation_probability: null,
+    wind_speed_10m: g("wind_speed_10m"),
+    wind_gusts_10m: g("wind_gusts_10m"),
+    wind_direction_10m: g("wind_direction_10m"),
+    cloud_cover: g("cloud_cover"),
+    visibility: g("visibility"),
+    uv_index: g("uv_index")
+  };
+  for(const k in v) if(v[k]===undefined) v[k]=det[k];
+  return v;
+}
+
+function medianOf(a){
+  const b=a.filter(v=>v!=null && !isNaN(v));
+  if(!b.length) return null;
+  b.sort((x,y)=>x-y);
+  return b[Math.floor(b.length/2)];
+}
+/* Retninger kan ikke medianberegnes hen over 0 grader; her bruges middelretningen */
+function circMean(a){
+  let x=0,y=0,n=0;
+  a.forEach(v=>{ if(v==null||isNaN(v)) return; const r=v*Math.PI/180; x+=Math.cos(r); y+=Math.sin(r); n++; });
+  if(!n || (x===0&&y===0)) return null;
+  return (Math.atan2(y,x)*180/Math.PI+360)%360;
+}
+
+/* Alt hvad ensemblet kan sige om ét tidspunkt: medianvaerdier til visning og
+   fordelingen af medlemmernes scorer. Scoren beregnes per medlem og
+   medianberegnes bagefter — ikke omvendt — fordi modellen er ikke-lineaer. */
+function ensAt(wx,i,frac,mud){
+  if(!S.ens) return null;
+  const E=S.ens, h=wx.hourly;
+  const ei=E.idx[h.time[i].slice(0,13)];
   if(ei==null) return null;
-  const dh=wx.hourly;
-  const detT=dh.temperature_2m[detIdx], detA=dh.apparent_temperature[detIdx];
-  const offsetKendt = detT!=null && detA!=null;
-  const scores=[];
+  if(frac && ei+1>=E.h.time.length) return null;
+  const ts = frac? addMinISO(h.time[i],frac*60) : h.time[i];
+  const det=hourDet(h,i);
+  const acc={}, scores=[];
+  let vaade=0;
   for(let m=0;m<E.n;m++){
-    const t  = E.h[E.keys.temperature_2m[m]][ei];
-    const pr = E.h[E.keys.precipitation[m]][ei];
-    const ws = E.h[E.keys.wind_speed_10m[m]][ei];
-    const wg = E.h[E.keys.wind_gusts_10m[m]][ei];
-    if(t==null && pr==null && ws==null) continue;
-    scores.push(scoreVals(wx,{
-      temperature_2m: t,
-      /* medlemmets afvigelse laegges paa den deterministiske foeles-som */
-      apparent_temperature: (offsetKendt && t!=null) ? detA+(t-detT) : detA,
-      precipitation: pr,
-      /* inden for ét medlem er nedboeren et faktum, ikke en sandsynlighed;
-         impRain udleder da straffen af maengden alene                       */
-      precipitation_probability: null,
-      wind_speed_10m: ws,
-      wind_gusts_10m: wg,
-      uv_index: dh.uv_index[detIdx],
-      visibility: dh.visibility[detIdx]
-    },timeStr,mud).score);
+    const v=ensMember(wx,E,ei,m,frac,det);
+    if(v.temperature_2m==null && v.precipitation==null && v.wind_speed_10m==null) continue;
+    scores.push(scoreVals(wx,v,ts,mud).score);
+    if((v.precipitation||0)>=0.05) vaade++;
+    for(const k in v){ (acc[k]||(acc[k]=[])).push(v[k]); }
   }
   if(scores.length<2) return null;
   scores.sort((a,b)=>a-b);
   const q=f=>scores[Math.min(scores.length-1,Math.floor(f*scores.length))];
-  return {median:q(0.5), lo:q(0.1), hi:q(0.9), n:scores.length};
+  const vals={};
+  for(const k in acc) vals[k]=medianOf(acc[k]);
+  vals.wind_direction_10m=circMean(acc.wind_direction_10m||[]);
+  if(vals.wind_direction_10m==null) vals.wind_direction_10m=det.wind_direction_10m;
+  /* nu bliver sandsynligheden det, den betyder: andelen af medlemmer med nedboer */
+  vals.precipitation_probability=Math.round(vaade/scores.length*100);
+  return { vals:vals, score:{median:q(0.5), lo:q(0.1), hi:q(0.9), n:scores.length} };
+}
+
+/* Underlaget hoerer til doegnet, ikke til timen. Uden det her ville en time i
+   ugeoversigten kunne blive cachet med dagens underlag i stedet for sit eget,
+   afhaengigt af hvilken visning der tegnede foerst.                          */
+function mudForHour(wx,i){
+  const day=wx.hourly.time[i].slice(0,10);
+  if(!S.mudDays) S.mudDays={};
+  if(!(day in S.mudDays)) S.mudDays[day]=mudForDay(wx,S.soil,wx.daily.time.indexOf(day));
+  return S.mudDays[day];
+}
+
+/* Ensemblet regnes én gang per tidspunkt. Cachen nulstilles ved banetypeskift,
+   fordi scoren afhaenger af den — uden den ville 51 medlemmer blive regnet
+   forfra ved hver gentegning, ogsaa naar man blot skifter tema.             */
+function ensCached(wx,i,frac,mud){
+  if(!S.ens) return null;
+  if(!S.ensCache || S.ensCache.terrain!==S.terrain) S.ensCache={terrain:S.terrain, map:{}};
+  const k=i+"|"+(frac||0);
+  if(!(k in S.ensCache.map)) S.ensCache.map[k]=ensAt(wx,i,frac,mud);
+  return S.ensCache.map[k];
 }
 
 /* Doegnvaerdier fra ensemblet. Hvert felt tages som medianen paa tvaers af
@@ -867,54 +964,52 @@ function scoreVals(wx,hv,timeStr,mud){
   if(dark) score=Math.min(score,8);
   return {score,parts,eff,dark,critical,frozen};
 }
-function hourVals(h,i){
-  return {
-    precipitation_probability: h.precipitation_probability[i],
-    precipitation: h.precipitation[i],
-    apparent_temperature: h.apparent_temperature[i],
-    wind_speed_10m: h.wind_speed_10m[i],
-    wind_gusts_10m: h.wind_gusts_10m[i],
-    uv_index: h.uv_index[i],
-    visibility: h.visibility[i],
-    temperature_2m: h.temperature_2m[i]
-  };
+/* Ét sted at hente en times vaerdier: ensemblets medianer hvor ensemblet
+   daekker variablen, ellers det deterministiske loeb. Baade scoren og de
+   viste tal kommer herfra, saa vurdering og tal aldrig beskriver hver sit
+   vejr.                                                                    */
+function hourVals(wx,i,frac){
+  const h=wx.hourly;
+  if(frac){
+    const a=hourVals(wx,i), b=hourVals(wx,i+1);
+    const lerp=(x,y)=>(x==null||y==null)?(x??y):x+(y-x)*frac;
+    const lerpDeg=(x,y)=>{ if(x==null||y==null) return x??y; const d=((y-x+540)%360)-180; return (x+d*frac+360)%360; };
+    const out={};
+    for(const k in a) out[k]= k==="wind_direction_10m" ? lerpDeg(a[k],b[k]) : lerp(a[k],b[k]);
+    return out;
+  }
+  const det=hourDet(h,i);
+  const E=ensCached(wx,i,0,mudForHour(wx,i));
+  return E ? Object.assign(det, E.vals) : det;
 }
+
 function scoreAt(wx,i,mud){
-  return scoreVals(wx, hourVals(wx.hourly,i), wx.hourly.time[i], mud);
+  const r=scoreVals(wx, hourVals(wx,i), wx.hourly.time[i], mud);
+  const E=ensCached(wx,i,0,mud);
+  if(E){ r.score=E.score.median; r.spread=E.score; }
+  return r;
 }
+
 /* ---------- glidende overgang omkring solopgang/-nedgang ----------
    Vejrdata kommer kun i heltimer, men lysstyrken skifter meget på 45 min.
-   Nær skumring/gry indsætter vi 15-minutters mellempunkter ved at
-   interpolere de øvrige vejrvariable lineært mellem to heltimer, mens
-   lysstraffen (som kun afhænger af klokkeslæt) regnes præcist.          */
+   Nær skumring/gry indsættes 15-minutters mellempunkter. Hvert medlem
+   interpoleres for sig, så mellempunkterne hviler på samme grundlag som
+   heltimerne og kurven ikke får et knæk ved overgangen.                 */
 function addMinISO(t,mins){
   const total=(+t.slice(11,13))*60+(+t.slice(14,16))+Math.round(mins);
   const H=Math.floor(total/60)%24, M=((total%60)+60)%60;
   return t.slice(0,11)+String(H).padStart(2,"0")+":"+String(M).padStart(2,"0");
 }
-function interpAt(wx,i,frac){
-  const h=wx.hourly, lerp=(a,b)=>(a==null||b==null)?(a??b):a+(b-a)*frac;
-  const lerpDeg=(a,b)=>{ if(a==null||b==null) return a??b; const d=((b-a+540)%360)-180; return (a+d*frac+360)%360; };
-  return {
-    temperature_2m: lerp(h.temperature_2m[i],h.temperature_2m[i+1]),
-    apparent_temperature: lerp(h.apparent_temperature[i],h.apparent_temperature[i+1]),
-    precipitation: lerp(h.precipitation[i],h.precipitation[i+1]),
-    precipitation_probability: lerp(h.precipitation_probability[i],h.precipitation_probability[i+1]),
-    wind_speed_10m: lerp(h.wind_speed_10m[i],h.wind_speed_10m[i+1]),
-    wind_gusts_10m: lerp(h.wind_gusts_10m[i],h.wind_gusts_10m[i+1]),
-    wind_direction_10m: lerpDeg(h.wind_direction_10m[i],h.wind_direction_10m[i+1]),
-    uv_index: lerp(h.uv_index[i],h.uv_index[i+1]),
-    cloud_cover: lerp(h.cloud_cover[i],h.cloud_cover[i+1]),
-    visibility: lerp(h.visibility[i],h.visibility[i+1])
-  };
-}
 function scoreAtSub(wx,i,frac,mud){
-  return scoreVals(wx, interpAt(wx,i,frac), addMinISO(wx.hourly.time[i],frac*60), mud);
+  const r=scoreVals(wx, hourVals(wx,i,frac), addMinISO(wx.hourly.time[i],frac*60), mud);
+  const E=ensCached(wx,i,frac,mud);
+  if(E){ r.score=E.score.median; r.spread=E.score; }
+  return r;
 }
 function pointVals(wx,pt){
   const h=wx.hourly;
-  if(!pt.frac) return Object.assign({time:h.time[pt.i]}, hourVals(h,pt.i), {temperature_2m:h.temperature_2m[pt.i], cloud_cover:h.cloud_cover[pt.i], wind_direction_10m:h.wind_direction_10m[pt.i]});
-  return Object.assign({time:addMinISO(h.time[pt.i],pt.frac*60)}, interpAt(wx,pt.i,pt.frac));
+  const t = pt.frac ? addMinISO(h.time[pt.i],pt.frac*60) : h.time[pt.i];
+  return Object.assign({time:t}, hourVals(wx,pt.i,pt.frac));
 }
 function pointScore(wx,pt,mud){ return pt.frac? scoreAtSub(wx,pt.i,pt.frac,mud) : scoreAt(wx,pt.i,mud); }
 function withTwilightSubpoints(wx,idxList){
@@ -968,6 +1063,8 @@ function setGauge(target, intro){
 function render(){
   const wx=S.wx, mud=S.mud, i=hourIndex(wx), h=wx.hourly;
   const cur=scoreAt(wx,i,mud);
+  /* samme vaerdisaet som scoren bygger paa, saa tal og vurdering foelges ad */
+  const V=hourVals(wx,i);
   const b=cur.dark? {c:PAL.band0,t:"Mørkt",a:""} : band(cur.score);
 
   el("pct").style.color=b.c;
@@ -985,18 +1082,18 @@ function render(){
 
   /* factors */
   const F=[
-    ["Vind","vind", cur.parts.vind, fmt(h.wind_speed_10m[i],1)+" m/s "+dirName(h.wind_direction_10m[i])+", stød "+fmt(h.wind_gusts_10m[i],1),
+    ["Vind","vind", cur.parts.vind, fmt(V.wind_speed_10m,1)+" m/s "+dirName(V.wind_direction_10m)+", stød "+fmt(V.wind_gusts_10m,1),
       "Effektiv vind "+fmt(cur.eff,1)+" m/s på "+TERRAIN[S.terrain].name+"."],
-    ["Regn","regn", cur.parts.regn, fmt(h.precipitation_probability[i])+" % / "+fmt(h.precipitation[i],1)+" mm",
-      h.precipitation[i]>0.3? "Vådt greb koster mere præcision end vådt tøj." : "Tørt greb lige nu."],
+    ["Regn","regn", cur.parts.regn, fmt(V.precipitation_probability)+" % / "+fmt(V.precipitation,1)+" mm",
+      V.precipitation>0.3? "Vådt greb koster mere præcision end vådt tøj." : "Tørt greb lige nu."],
     ["Underlag","underlag", cur.parts.underlag, mudLabel(mud,cur.frozen)+" ("+mud.idx+")",
       "Baseret på nedbør og fordampning de seneste 7 døgn"+(S.soil!=null?" plus målt jordfugtighed":"")+"."],
-    ["Temperatur","temperatur", cur.parts.temperatur, fmt(h.temperature_2m[i],1)+" °C, føles "+fmt(h.apparent_temperature[i],1)+" °C",
-      tempNote(h.apparent_temperature[i])],
-    ["UV","uv", cur.parts.uv, "Indeks "+fmt(h.uv_index[i],1),
-      uvNote(h.uv_index[i])],
-    ["Sigtbarhed","sigt", cur.parts.sigt, h.visibility[i]!=null? fmt(h.visibility[i]/1000,1)+" km" : "Ukendt",
-      h.visibility[i]!=null && h.visibility[i]<2000? "Tåge begrænser hvor langt du kan se landingszonen." : "God sigt."],
+    ["Temperatur","temperatur", cur.parts.temperatur, fmt(V.temperature_2m,1)+" °C, føles "+fmt(V.apparent_temperature,1)+" °C",
+      tempNote(V.apparent_temperature)],
+    ["UV","uv", cur.parts.uv, "Indeks "+fmt(V.uv_index,1),
+      uvNote(V.uv_index)],
+    ["Sigtbarhed","sigt", cur.parts.sigt, V.visibility!=null? fmt(V.visibility/1000,1)+" km" : "Ukendt",
+      V.visibility!=null && V.visibility<2000? "Tåge begrænser hvor langt du kan se landingszonen." : "God sigt."],
     ["Lys","lys", cur.parts.lys, sunLabel(wx,h.time[i]), lysNote(cur.parts.lys)]
   ];
   const FP = F.map(f=>({f:f, pct:clamp(Math.round(100-f[2]),0,100)}));
@@ -1007,9 +1104,10 @@ function render(){
   el("whyline").textContent = cur.dark
     ? "Solen er nede. Scoren er låst, indtil det bliver lyst igen."
     : cur.critical
-      ? b.a+" Udslagsgivende er "+critReason(h,i,cur.eff)+"."
+      ? b.a+" Udslagsgivende er "+critReason(V,cur.eff)+"."
       : (!worstX ? b.a
-         : b.a+" Største begrænsning er "+(NAMES[worstKey]||worstKey).toLowerCase()+" med "+worstX.pct+" %.");
+         : b.a+" Største begrænsning er "+(NAMES[worstKey]||worstKey).toLowerCase()+" med "+worstX.pct+" %.")
+    + (cur.spread && !cur.dark ? " De "+cur.spread.n+" modelkørsler spænder fra "+cur.spread.lo+" til "+cur.spread.hi+" %." : "");
 
   el("factors").innerHTML = FP.map(x=>{
     const f=x.f, pct=x.pct, col=band(pct).c;
@@ -1092,18 +1190,18 @@ function render(){
   const tips=[];
   if(cur.eff>7) tips.push("<strong>Overstabilt først.</strong> Effektiv vind på "+fmt(cur.eff,1)+" m/s vender understabile linjer. Spil hyzer med Teebird/FD3-typen og hold discen lav.");
   else if(cur.eff>4) tips.push("<strong>Hold højden nede.</strong> "+fmt(cur.eff,1)+" m/s effektiv vind straffer høje anhyzer-linjer. Vælg en grad mere overstabilt end normalt.");
-  if(h.precipitation[i]>0.2 || h.precipitation_probability[i]>60) tips.push("<strong>To håndklæder.</strong> Ét til discen, ét der bliver tørt i tasken. Base-plast griber bedre end blank premium i vådt vejr.");
-  if(h.apparent_temperature[i]<=-10) tips.push("<strong>Frostrisiko.</strong> Føles som "+fmt(h.apparent_temperature[i],1)+" °C. Bar hud tager skade på minutter, plastikken bliver skør og kan revne ved anslag. Det her er ikke et spørgsmål om at være sej.");
-  else if(h.apparent_temperature[i]<5) tips.push("<strong>Kuldeplast.</strong> Under 5 °C bliver DX og D-line stive. GStar og gummiagtige putterplast holder grebet. Varm skulderen ordentligt op inden fuld kraft.");
-  else if(h.apparent_temperature[i]>=31) tips.push("<strong>Varmen er dagens risiko.</strong> Føles som "+fmt(h.apparent_temperature[i],1)+" °C. En runde er to timers arbejde i solen: regn med en liter vand i timen, hold pauserne i skyggen, og overvej ni huller frem for atten. Kraften i rotationen falder, længe før du selv opdager det.");
-  else if(h.apparent_temperature[i]>=27) tips.push("<strong>Sved i grebet.</strong> Føles som "+fmt(h.apparent_temperature[i],1)+" °C. Et tørt håndklæde og en pose kridt redder flere kast end noget discvalg, for en glat håndflade slipper discen for tidligt og sender den op til højre. Varm luft er tyndere og plastikken blødere, så tag en grad mere overstabilt end normalt.");
+  if(V.precipitation>0.2 || V.precipitation_probability>60) tips.push("<strong>To håndklæder.</strong> Ét til discen, ét der bliver tørt i tasken. Base-plast griber bedre end blank premium i vådt vejr.");
+  if(V.apparent_temperature<=-10) tips.push("<strong>Frostrisiko.</strong> Føles som "+fmt(V.apparent_temperature,1)+" °C. Bar hud tager skade på minutter, plastikken bliver skør og kan revne ved anslag. Det her er ikke et spørgsmål om at være sej.");
+  else if(V.apparent_temperature<5) tips.push("<strong>Kuldeplast.</strong> Under 5 °C bliver DX og D-line stive. GStar og gummiagtige putterplast holder grebet. Varm skulderen ordentligt op inden fuld kraft.");
+  else if(V.apparent_temperature>=31) tips.push("<strong>Varmen er dagens risiko.</strong> Føles som "+fmt(V.apparent_temperature,1)+" °C. En runde er to timers arbejde i solen: regn med en liter vand i timen, hold pauserne i skyggen, og overvej ni huller frem for atten. Kraften i rotationen falder, længe før du selv opdager det.");
+  else if(V.apparent_temperature>=27) tips.push("<strong>Sved i grebet.</strong> Føles som "+fmt(V.apparent_temperature,1)+" °C. Et tørt håndklæde og en pose kridt redder flere kast end noget discvalg, for en glat håndflade slipper discen for tidligt og sender den op til højre. Varm luft er tyndere og plastikken blødere, så tag en grad mere overstabilt end normalt.");
   if(cur.frozen) tips.push("<strong>Frossen bund.</strong> Hårdt underlag giver lange skid, men også glatte nedslagsfødder. Kort x-step, ingen fuld udskridning.");
   else if(mud.idx>=60) tips.push("<strong>Fodfæstet er dagens risiko.</strong> "+mudLabel(mud,false)+" bund. Kort x-step eller stående kast, sko med greb. Nedslagsfoden er der, skader sker.");
   else if(mud.idx>=35) tips.push("<strong>Blød bund.</strong> Regn med lidt kortere kast, discen ruller ikke ud. Sigt efter at lande på fairway frem for at plukke afstand.");
-  if(h.uv_index[i]>=8) tips.push("<strong>Solen er dagens risiko.</strong> UV "+fmt(h.uv_index[i],1)+". Læg helst runden uden om timerne midt på dagen. Spiller du alligevel: solcreme faktor 30+, dækkede skuldre og en pause i skyggen undervejs.");
-  else if(h.uv_index[i]>=6) tips.push("<strong>Solcreme og genpåføring.</strong> UV "+fmt(h.uv_index[i],1)+". Faktor 30+, kasket og solbriller. Sveden tager det meste undervejs, så smør igen efter ni huller.");
-  else if(h.uv_index[i]>=3) tips.push("<strong>Solcreme i tasken.</strong> UV "+fmt(h.uv_index[i],1)+". To timer i det fri rækker til en solskoldning. Faktor 30 på ansigt, nakke og arme plus kasket. Nakke og ører brænder først, fordi du kigger opad efter discen.");
-  if(h.visibility[i]!=null && h.visibility[i]<1200) tips.push("<strong>Tæt tåge.</strong> Sigt under "+fmt(h.visibility[i]/1000,1)+" km gør det svært at spotte discs i landingszonen og andre spillere. Spil kortere hul-for-hul og hold øje med discens landingssted, ikke kun kastet.");
+  if(V.uv_index>=8) tips.push("<strong>Solen er dagens risiko.</strong> UV "+fmt(V.uv_index,1)+". Læg helst runden uden om timerne midt på dagen. Spiller du alligevel: solcreme faktor 30+, dækkede skuldre og en pause i skyggen undervejs.");
+  else if(V.uv_index>=6) tips.push("<strong>Solcreme og genpåføring.</strong> UV "+fmt(V.uv_index,1)+". Faktor 30+, kasket og solbriller. Sveden tager det meste undervejs, så smør igen efter ni huller.");
+  else if(V.uv_index>=3) tips.push("<strong>Solcreme i tasken.</strong> UV "+fmt(V.uv_index,1)+". To timer i det fri rækker til en solskoldning. Faktor 30 på ansigt, nakke og arme plus kasket. Nakke og ører brænder først, fordi du kigger opad efter discen.");
+  if(V.visibility!=null && V.visibility<1200) tips.push("<strong>Tæt tåge.</strong> Sigt under "+fmt(V.visibility/1000,1)+" km gør det svært at spotte discs i landingszonen og andre spillere. Spil kortere hul-for-hul og hold øje med discens landingssted, ikke kun kastet.");
   if(!tips.length) tips.push("<strong>Ingen særlige forholdsregler.</strong> Standardtaske og en flaske vand. Brug den slags dag til at arbejde med linjer frem for afstand.");
   el("tips").innerHTML=tips.map(t=>"<li>"+t+"</li>").join("");
 
@@ -1157,14 +1255,6 @@ function ensDay(day){
   if(!(day in S.ensDays)) S.ensDays[day]=ensembleDay(S.ens,day);
   return S.ensDays[day];
 }
-function ensCell(wx,timeStr,detIdx,mud){
-  if(!S.ens) return null;
-  if(!S.ensCache || S.ensCache.terrain!==S.terrain) S.ensCache={terrain:S.terrain, map:{}};
-  const k=timeStr.slice(0,13);
-  if(!(k in S.ensCache.map)) S.ensCache.map[k]=ensembleScores(wx,S.ens,timeStr,detIdx,mud);
-  return S.ensCache.map[k];
-}
-
 function renderWeek(){
   const wx=S.wx, h=wx.hourly, d=wx.daily, ti=todayIdxOf(wx);
   const R=weekHourRange(wx), N=R.hi-R.lo+1;
@@ -1180,10 +1270,9 @@ function renderWeek(){
     for(let hh=R.lo; hh<=R.hi; hh++){
       const j=at[day+"T"+String(hh).padStart(2,"0")];
       if(j==null || !isDaylight(wx,h.time[j])){ cells.push(null); continue; }
-      const E=ensCell(wx,h.time[j],j,mud);
-      const sc=E ? E.median : scoreAt(wx,j,mud).score;
-      cells.push({hh:hh, sc:sc, spread:E});
-      if(sc>top.v) top={v:sc, di:di, hh:hh};
+      const r=scoreAt(wx,j,mud);
+      cells.push({hh:hh, sc:r.score, spread:r.spread});
+      if(r.score>top.v) top={v:r.score, di:di, hh:hh};
     }
     let best=0;
     for(let x=0;x<cells.length-1;x++){
@@ -1236,10 +1325,10 @@ function renderWeek(){
   const brugtEns = days.some(D=>D.cells.some(c=>c && c.spread));
   el("weekSrc").innerHTML = "Hver rude er én time. Kun dagslystimer har farve. Tryk på en rude for at se tidspunktet, eller på dagens navn for at åbne hele dagen time for time. "
     + (brugtEns
-       ? "Ugen bygger på ECMWF-ensemblet, hvor scoren beregnes for hver af de "
+       ? "Hele dashboardet bygger på ECMWF-ensemblet, hvor scoren beregnes for hver af de "
          + (S.ens ? S.ens.n : 51) + " modelkørsler og medianen vises. "
          + "Ved en rude ses også, hvor uenige modellerne er."
-       : "Ugen bygger på den enkelte deterministiske prognose.")
+       : "Dashboardet bygger på den enkelte deterministiske prognose.")
     + " Underlaget fremskrives med forventet nedbør og fordampning.";
 
   el("weekLegend").innerHTML = [[90,"Perfekt"],[70,"God"],[50,"Tilpasning"],[30,"Krævende"],[10,"Bliv hjemme"]]
@@ -1313,6 +1402,7 @@ async function loadFor(lat,lon,label,namePromise,src){
     S.wx=wx; S.soil=soil; S.lat=lat; S.lon=lon; S.label=label; S.viewDay=null; S.weekSel=null;
     if(src) S.src=src;
     S.intro=true;
+    S.mudDays=null;
     S.mud=mudForDay(wx,soil,todayIdxOf(wx));
     el("placeLabel").textContent=label;
     render();
@@ -1321,7 +1411,7 @@ async function loadFor(lat,lon,label,namePromise,src){
     if(namePromise) namePromise.then(n=>{ if(n && S.lat===lat && S.lon===lon) setPlace(n); });
     /* ensemblet er en efterfoelgende forbedring af ugeoversigten og maa aldrig
        forsinke foerste visning eller vaelte siden, hvis kaldet fejler */
-    S.ens=null; S.ensCache=null; S.ensDays=null;
+    S.ens=null; S.ensCache=null; S.ensDays=null; S.mudDays=null;
     getEnsemble(lat,lon).then(j=>{
       if(S.lat!==lat || S.lon!==lon || !j) return;
       S.ens=prepEnsemble(j); S.ensCache=null; S.ensDays=null;
