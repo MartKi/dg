@@ -418,7 +418,7 @@ try{var t=localStorage.getItem("dgTheme");if(t==="light"||t==="dark")document.do
       </ul>
       <p>Fem forhold er vetogrænser, som låser scoren på højst 8 % uanset resten: effektiv vind fra 14 m/s, nedbør fra 6 mm i timen, føles-som fra &minus;12 °C og derunder, føles-som fra 38 °C og derover, og sigt på 100 meter og derunder (tæt tåge). Det er dem, der udløser "Bliv hjemme".</p>
       <p>Uden for dagslys (fra 20 min efter solopgang til 15 min før solnedgang) låses scoren på maks. 8. Fordi vejrdata kun findes for hele timer, men lyset skifter meget på under en time, indsætter time-for-time-oversigten ekstra punkter hvert 15. minut omkring solopgang og solnedgang. De øvrige vejrtal interpoleres lineært mellem de to nærmeste heltimer i de punkter, mens lyset regnes præcist ud fra klokkeslættet – det giver en glidende overgang i stedet for et hårdt spring mellem to timer.</p>
-      <p>Hele dashboardet henter ECMWF-ensemblet, hvor 51 ligevægtige modelkørsler beskriver, hvor usikker prognosen er. Scoren beregnes for hver kørsel, og medianen vises — ikke scoren af et gennemsnitsvejr, for modellen er ikke-lineær, og de to er ikke det samme. De viste tal er tilsvarende medianer, felt for felt, så de tilsammen ikke svarer til én bestemt kørsel, men beskriver et typisk udfald. Faktorsøjlerne regnes derimod ud fra medianværdierne, så de kan afvige et par point fra totalen. Ensemblet dækker ikke UV og underlag, og leverer ikke altid føles-som, sigtbarhed og vindretning. Det manglende tages fra den almindelige prognose, og føles-som rekonstrueres om nødvendigt ved at lægge kørslens egen temperaturafvigelse oven på den, så fugt- og solbidraget bevares. Kaldet beder først om alle variable og falder tilbage til kernen (temperatur, nedbør, vind, vindstød), hvis modellen afviser resten. Detaljelinjen under ugematricen kommer samme sted fra: temperatur, nedbør og vind vises som medianen på tværs af kørslerne, og nedbørssandsynligheden bliver dér det, den egentlig betyder — andelen af kørsler med målbar nedbør. Hvert felt medianberegnes for sig, så tallene tilsammen ikke svarer til én bestemt kørsel, men beskriver et typisk udfald. Vindretning, UV og underlag findes ikke i ensemblet og bliver stående på den almindelige prognose. Fejler kaldet, falder ugen tilbage på den almindelige prognose.</p><p>Data: Open-Meteo (vejr, jordfugtighed, ET0, ECMWF-ensemble). Banetypen vælger du selv, fordi den ændrer vægtningen af vind og mudder.</p>
+      <p>Grundlaget skifter med, hvor langt frem man kigger. Det første døgn følger den almindelige prognose, som blander finere modeller ind og derfor rammer byger, vindstød og lokale forhold bedre på kort sigt, hvor opløsning betyder mest. Derefter glider grundlaget over 12 timer ind i ECMWF-ensemblet, hvor 51 ligevægtige modelkørsler beskriver, hvor usikker prognosen er — for længere ude er det usikkerheden, ikke opløsningen, der afgør, hvor godt man kan gætte. Overgangen er glidende, så scoren ikke springer ved døgngrænsen. Fra ensemblet beregnes scoren for hver kørsel, og medianen vises — ikke scoren af et gennemsnitsvejr, for modellen er ikke-lineær, og de to er ikke det samme. De viste tal er tilsvarende medianer, felt for felt, så de tilsammen ikke svarer til én bestemt kørsel, men beskriver et typisk udfald. Faktorsøjlerne regnes derimod ud fra medianværdierne, så de kan afvige et par point fra totalen. Ensemblet dækker ikke UV og underlag, og leverer ikke altid føles-som, sigtbarhed og vindretning. Det manglende tages fra den almindelige prognose, og føles-som rekonstrueres om nødvendigt ved at lægge kørslens egen temperaturafvigelse oven på den, så fugt- og solbidraget bevares. Kaldet beder først om alle variable og falder tilbage til kernen (temperatur, nedbør, vind, vindstød), hvis modellen afviser resten. Detaljelinjen under ugematricen kommer samme sted fra: temperatur, nedbør og vind vises som medianen på tværs af kørslerne, og nedbørssandsynligheden bliver dér det, den egentlig betyder — andelen af kørsler med målbar nedbør. Hvert felt medianberegnes for sig, så tallene tilsammen ikke svarer til én bestemt kørsel, men beskriver et typisk udfald. Vindretning, UV og underlag findes ikke i ensemblet og bliver stående på den almindelige prognose. Fejler kaldet, falder ugen tilbage på den almindelige prognose.</p><p>Data: Open-Meteo (vejr, jordfugtighed, ET0, ECMWF-ensemble). Banetypen vælger du selv, fordi den ændrer vægtningen af vind og mudder.</p>
     </details>
   </div>
 
@@ -766,6 +766,34 @@ function ensAt(wx,i,frac,mud){
   return { vals:vals, score:{median:q(0.5), lo:q(0.1), hi:q(0.9), n:scores.length} };
 }
 
+/* Ensemblet koerer i 25 km, mens den almindelige prognose blander finere
+   modeller ind paa kort sigt. Paa de foerste døgn afgoeres byger, vindstoed og
+   lokale effekter af oploesning, og der er det finere loeb bedst. Laengere ude
+   dominerer usikkerheden i stedet, og der vinder ensemblet.
+
+   Skiftet sker derfor ikke paa én time — det ville give et synligt spring i
+   baade stribe og matrix — men glider over et halvt doegn.                  */
+const DET_TIMER=24, BLEND_TIMER=12;
+function ensWeight(wx,i){
+  if(!S.ens) return 0;
+  const lead=i-hourIndex(wx);
+  if(lead<=DET_TIMER) return 0;
+  if(lead>=DET_TIMER+BLEND_TIMER) return 1;
+  return (lead-DET_TIMER)/BLEND_TIMER;
+}
+function blendVals(det,ens,w){
+  const out={};
+  for(const k in det){
+    const a=det[k], b=ens[k];
+    if(b==null||isNaN(b)){ out[k]=a; continue; }
+    if(a==null||isNaN(a)){ out[k]=b; continue; }
+    out[k] = (k==="wind_direction_10m")
+      ? (a+(((b-a+540)%360)-180)*w+360)%360      /* retning maa gaa den korte vej rundt */
+      : a+(b-a)*w;
+  }
+  return out;
+}
+
 /* Underlaget hoerer til doegnet, ikke til timen. Uden det her ville en time i
    ugeoversigten kunne blive cachet med dagens underlag i stedet for sit eget,
    afhaengigt af hvilken visning der tegnede foerst.                          */
@@ -979,14 +1007,23 @@ function hourVals(wx,i,frac){
     return out;
   }
   const det=hourDet(h,i);
+  const w=ensWeight(wx,i);
+  if(w<=0) return det;                            /* foerste doegn: det finere loeb */
   const E=ensCached(wx,i,0,mudForHour(wx,i));
-  return E ? Object.assign(det, E.vals) : det;
+  if(!E) return det;
+  return w>=1 ? Object.assign(det,E.vals) : blendVals(det,E.vals,w);
 }
 
 function scoreAt(wx,i,mud){
   const r=scoreVals(wx, hourVals(wx,i), wx.hourly.time[i], mud);
-  const E=ensCached(wx,i,0,mud);
-  if(E){ r.score=E.score.median; r.spread=E.score; }
+  const w=ensWeight(wx,i);
+  if(w>0){
+    const E=ensCached(wx,i,0,mud);
+    if(E){
+      r.score=clamp(Math.round(r.score*(1-w)+E.score.median*w),0,100);
+      r.spread=E.score; r.ensW=w;
+    }
+  }
   return r;
 }
 
@@ -1002,8 +1039,14 @@ function addMinISO(t,mins){
 }
 function scoreAtSub(wx,i,frac,mud){
   const r=scoreVals(wx, hourVals(wx,i,frac), addMinISO(wx.hourly.time[i],frac*60), mud);
-  const E=ensCached(wx,i,frac,mud);
-  if(E){ r.score=E.score.median; r.spread=E.score; }
+  const w=ensWeight(wx,i);
+  if(w>0){
+    const E=ensCached(wx,i,frac,mud);
+    if(E){
+      r.score=clamp(Math.round(r.score*(1-w)+E.score.median*w),0,100);
+      r.spread=E.score; r.ensW=w;
+    }
+  }
   return r;
 }
 function pointVals(wx,pt){
@@ -1107,7 +1150,8 @@ function render(){
       ? b.a+" Udslagsgivende er "+critReason(V,cur.eff)+"."
       : (!worstX ? b.a
          : b.a+" Største begrænsning er "+(NAMES[worstKey]||worstKey).toLowerCase()+" med "+worstX.pct+" %.")
-    + (cur.spread && !cur.dark ? " De "+cur.spread.n+" modelkørsler spænder fra "+cur.spread.lo+" til "+cur.spread.hi+" %." : "");
+    + (cur.spread && cur.ensW>0 && !cur.dark
+       ? " De "+cur.spread.n+" modelkørsler spænder fra "+cur.spread.lo+" til "+cur.spread.hi+" %." : "");
 
   el("factors").innerHTML = FP.map(x=>{
     const f=x.f, pct=x.pct, col=band(pct).c;
@@ -1225,18 +1269,27 @@ function weekHourRange(wx){
   return hi<0 ? {lo:8, hi:16} : {lo:lo, hi:hi};
 }
 
+/* Doegnets vaegt tages midt paa dagen, saa hele raekken hviler paa ét grundlag */
+function ensWeightForDay(wx,di){
+  const t=wx.daily.time[di]+"T12:00";
+  const i=wx.hourly.time.indexOf(t);
+  return i<0 ? (S.ens?1:0) : ensWeight(wx,i);
+}
 function dayMeta(wx,di,mud){
   const d=wx.daily, uv=d.uv_index_max[di];
   /* Ensemblet daekker temperatur, nedboer og vind, men hverken vindretning,
      UV eller underlag — de tre bliver derfor staaende paa det deterministiske
      loeb, saa linjen ikke lover mere praecision end den har.                 */
-  const E=ensDay(d.time[di]);
-  const tmax = E? E.tmax : d.temperature_2m_max[di];
-  const tmin = E? E.tmin : d.temperature_2m_min[di];
-  const psum = E? E.psum : d.precipitation_sum[di];
-  const pprob= E? E.pprob: d.precipitation_probability_max[di];
-  const wmax = E? E.wmax : d.wind_speed_10m_max[di];
-  const gmax = E? E.gmax : d.wind_gusts_10m_max[di];
+  /* samme vaegtning som timerne, saa linjen ikke skifter grundlag foer ruderne */
+  const w=ensWeightForDay(wx,di);
+  const E=w>0 ? ensDay(d.time[di]) : null;
+  const mix=(det,ens)=> (E==null||ens==null||det==null) ? (det!=null?det:ens) : det+(ens-det)*w;
+  const tmax = mix(d.temperature_2m_max[di], E&&E.tmax);
+  const tmin = mix(d.temperature_2m_min[di], E&&E.tmin);
+  const psum = mix(d.precipitation_sum[di],  E&&E.psum);
+  const pprob= mix(d.precipitation_probability_max[di], E&&E.pprob);
+  const wmax = mix(d.wind_speed_10m_max[di], E&&E.wmax);
+  const gmax = mix(d.wind_gusts_10m_max[di], E&&E.gmax);
   /* et doegn kaldes kun frossent, hvis det aldrig naar over frysepunktet */
   const frostHeleDagen = mud.couldFreeze && tmax!=null && tmax<=0;
   return fmt(tmax)+"°/"+fmt(tmin)+"°"
@@ -1325,9 +1378,10 @@ function renderWeek(){
   const brugtEns = days.some(D=>D.cells.some(c=>c && c.spread));
   el("weekSrc").innerHTML = "Hver rude er én time. Kun dagslystimer har farve. Tryk på en rude for at se tidspunktet, eller på dagens navn for at åbne hele dagen time for time. "
     + (brugtEns
-       ? "Hele dashboardet bygger på ECMWF-ensemblet, hvor scoren beregnes for hver af de "
+       ? "Det første døgn følger den finere prognose, som er skarpest på kort sigt. "
+         + "Derefter glider grundlaget over i ECMWF-ensemblet, hvor scoren beregnes for hver af de "
          + (S.ens ? S.ens.n : 51) + " modelkørsler og medianen vises. "
-         + "Ved en rude ses også, hvor uenige modellerne er."
+         + "Ved en rude længere ude ses også, hvor uenige modellerne er."
        : "Dashboardet bygger på den enkelte deterministiske prognose.")
     + " Underlaget fremskrives med forventet nedbør og fordampning.";
 
