@@ -25,10 +25,13 @@ try{var t=localStorage.getItem("dgTheme");if(t==="light"||t==="dark")document.do
     color-scheme:light;
     --paper:#EEF1F6; --card:#FFFFFF; --field:#F3F5F9; --track:#E7EBF1;
     --ink:#111826; --ink-soft:#6B7688; --line:#E3E8EF; --on-ink:#FFFFFF;
-    --accent:#5A6BF0; --accent-hi:#4757E0; --on-accent:#FFFFFF; --chain:#A8B2C4;
+    --accent:#4F5FE8; --accent-hi:#4150D4; --on-accent:#FFFFFF; --chain:#A8B2C4;
     --sel:#EBEDFE; --hover:#E9EDF5;
     --warn-bg:#FBF6E9; --badge-bg:#F2E4C2; --badge-ink:#8A6400;
     --band1:#12996B; --band2:#4FA83C; --band3:#D79A00; --band4:#E07A28; --band5:#E05545; --band0:#A63E33;
+    /* Samme kulør, men mørk nok til at bære tekst på hvidt. Fladerne beholder
+       de lyse toner, så udseendet er uændret; kun skriften skifter.         */
+    --band1t:#00875D; --band2t:#1E7500; --band3t:#9B6E00; --band4t:#944900; --band5t:#D04637; --band0t:#A63E33;
     --uv1:#289500; --uv2:#F7E400; --uv3:#F85900; --uv4:#D8001D; --uv5:#6B49C8;
     --disc-fill:.08; --disc-ring:.18; --glow-op:.32;
     --r:26px;
@@ -43,6 +46,7 @@ try{var t=localStorage.getItem("dgTheme");if(t==="light"||t==="dark")document.do
       --sel:#282C4A; --hover:#2F3142;
       --warn-bg:#3A2B11; --badge-bg:#583E08; --badge-ink:#FFC969;
       --band1:#34BF91; --band2:#8AE15A; --band3:#FFCB6F; --band4:#FF9855; --band5:#FB6250; --band0:#B28583;
+      --band1t:#34BF91; --band2t:#8AE15A; --band3t:#FFCB6F; --band4t:#FF9855; --band5t:#FB6250; --band0t:#B28583;
       --uv1:#60CE49; --uv2:#F5E200; --uv3:#FF8E64; --uv4:#FF8A80; --uv5:#B1A1FF;
       --disc-fill:.16; --disc-ring:.42; --glow-op:.5;
       --sh:0 1px 2px rgba(0,0,0,.4), 0 14px 34px -18px rgba(0,0,0,.8), inset 0 0 0 1px rgba(255,255,255,.07);
@@ -56,6 +60,7 @@ try{var t=localStorage.getItem("dgTheme");if(t==="light"||t==="dark")document.do
     --sel:#282C4A; --hover:#2F3142;
     --warn-bg:#3A2B11; --badge-bg:#583E08; --badge-ink:#FFC969;
     --band1:#34BF91; --band2:#8AE15A; --band3:#FFCB6F; --band4:#FF9855; --band5:#FB6250; --band0:#B28583;
+    --band1t:#34BF91; --band2t:#8AE15A; --band3t:#FFCB6F; --band4t:#FF9855; --band5t:#FB6250; --band0t:#B28583;
     --uv1:#60CE49; --uv2:#F5E200; --uv3:#FF8E64; --uv4:#FF8A80; --uv5:#B1A1FF;
     --disc-fill:.16; --disc-ring:.42; --glow-op:.5;
     --sh:0 1px 2px rgba(0,0,0,.4), 0 14px 34px -18px rgba(0,0,0,.8), inset 0 0 0 1px rgba(255,255,255,.07);
@@ -70,7 +75,7 @@ try{var t=localStorage.getItem("dgTheme");if(t==="light"||t==="dark")document.do
   .chip[aria-pressed=true]{background:var(--ink);color:var(--on-ink);border-color:var(--ink)}
   button:hover{background:var(--hover)}
   button.primary:hover{background:var(--accent-hi)}
-  .err{color:var(--band5)}
+  .err{color:var(--band5t)}
   /* maalerens spor og indre glimt skal foelge kortets flade, ikke vaere hvide */
   #track{stroke:var(--track)}
   #innerFade stop{stop-color:var(--card)}
@@ -505,7 +510,9 @@ function impVis(vis){
 const PAL={};
 function readPalette(){
   const cs=getComputedStyle(document.documentElement);
-  ["band0","band1","band2","band3","band4","band5","uv1","uv2","uv3","uv4","uv5","track"].forEach(n=>{
+  ["band0","band1","band2","band3","band4","band5",
+   "band0t","band1t","band2t","band3t","band4t","band5t",
+   "uv1","uv2","uv3","uv4","uv5","track"].forEach(n=>{
     const v=cs.getPropertyValue("--"+n).trim();
     if(v) PAL[n]=v;
   });
@@ -520,15 +527,15 @@ function onColor(hex){
 }
 
 function band(score){
-  if(score>=80) return {c:PAL.band1, t:"Perfekte forhold",
+  if(score>=80) return {c:PAL.band1, tc:PAL.band1t, t:"Perfekte forhold",
     a:"Tag afsted. Der er ikke noget, du behøver tage særlige hensyn til."};
-  if(score>=60) return {c:PAL.band2, t:"God runde",
+  if(score>=60) return {c:PAL.band2, tc:PAL.band2t, t:"God runde",
     a:"Fine forhold. Tænk kort over tøjlag og discvalg, så er resten din egen skyld."};
-  if(score>=40) return {c:PAL.band3, t:"Spilbart med tilpasning",
+  if(score>=40) return {c:PAL.band3, tc:PAL.band3t, t:"Spilbart med tilpasning",
     a:"Det bliver en god runde, hvis du tilpasser dig: tøj efter vejret, en grad mere overstabilt i tasken og lavere linjer."};
-  if(score>=20) return {c:PAL.band4, t:"Krævende runde",
+  if(score>=20) return {c:PAL.band4, tc:PAL.band4t, t:"Krævende runde",
     a:"Det kan sagtens lade sig gøre, men det bliver arbejde. Overvej en kortere runde og skru forventningerne til scoren ned."};
-  return {c:PAL.band5, t:"Bliv hjemme",
+  return {c:PAL.band5, tc:PAL.band5t, t:"Bliv hjemme",
     a:"Forholdene trækker hårdt. Overvej putting- eller feltræning i stedet, eller find et bedre tidsrum i ugeoversigten."};
 }
 function critReason(v,eff){
@@ -1108,11 +1115,11 @@ function render(){
   const cur=scoreAt(wx,i,mud);
   /* samme vaerdisaet som scoren bygger paa, saa tal og vurdering foelges ad */
   const V=hourVals(wx,i);
-  const b=cur.dark? {c:PAL.band0,t:"Mørkt",a:""} : band(cur.score);
+  const b=cur.dark? {c:PAL.band0,tc:PAL.band0t,t:"Mørkt",a:""} : band(cur.score);
 
-  el("pct").style.color=b.c;
+  el("pct").style.color=b.tc;
   el("headline").textContent=b.t;
-  el("headline").style.color=b.c;
+  el("headline").style.color=b.tc;
   el("forWhat").textContent = S.label+" · "+h.time[i].slice(11,16)+" · "+TERRAIN[S.terrain].name;
 
   setGauge(cur.score, S.intro);
@@ -1154,12 +1161,12 @@ function render(){
        ? " De "+cur.spread.n+" modelkørsler spænder fra "+cur.spread.lo+" til "+cur.spread.hi+" %." : "");
 
   el("factors").innerHTML = FP.map(x=>{
-    const f=x.f, pct=x.pct, col=band(pct).c;
+    const f=x.f, pct=x.pct, bd=band(pct), col=bd.c, tcol=bd.tc;
     const isLim = pct<80, isW = f[1]===worstKey;
     return '<div class="factor'+(isLim?" worst":"")+'">'
-      + '<div class="flabel"><span class="ficon" style="color:'+(isLim?col:"var(--ink-soft)")+'">'+FICON[f[1]]+'</span>'+f[0]+'</div>'
+      + '<div class="flabel"><span class="ficon" style="color:'+(isLim?tcol:"var(--ink-soft)")+'">'+FICON[f[1]]+'</span>'+f[0]+'</div>'
       + '<div class="bar"><i style="width:'+pct+'%;background:'+col+'"></i></div>'
-      + '<div class="fval" style="color:'+col+'">'+pct+' %</div>'
+      + '<div class="fval" style="color:'+tcol+'">'+pct+' %</div>'
       + '<div class="fnote">'+f[3]+' · '+f[4]+(isW?' <span class="wbadge">største begrænsning</span>':'')+'</div></div>';
   }).join("");
 
@@ -1186,14 +1193,14 @@ function render(){
   }
   let rows="";
   points.forEach((pt,k)=>{
-    const v=pointVals(wx,pt), s=pointScore(wx,pt,mudUse), sb=s.dark?{c:PAL.band0}:band(s.score);
+    const v=pointVals(wx,pt), s=pointScore(wx,pt,mudUse), sb=s.dark?{c:PAL.band0,tc:PAL.band0t}:band(s.score);
     const uv=v.uv_index;
     const focal = S.viewDay==null ? (k===0)
       : (!pt.frac && S.weekSel && S.weekSel.hh!=null && +v.time.slice(11,13)===S.weekSel.hh);
     rows += '<div class="hr'+(focal?" now":"")+(pt.frac?" sub":"")+'">'
       + '<div class="t">'+v.time.slice(11,16)+'</div>'
       + '<div class="wic">'+wxIcon(v.precipitation_probability,v.precipitation,v.cloud_cover,windEff(v.wind_speed_10m,v.wind_gusts_10m),v.visibility)+'</div>'
-      + '<div class="sc" style="color:'+sb.c+'">'+s.score+'</div>'
+      + '<div class="sc" style="color:'+sb.tc+'">'+s.score+'</div>'
       + '<div class="sb" style="background:'+sb.c+';opacity:.9"></div>'
       + '<div class="temp">'+fmt(v.temperature_2m)+'°</div>'
       + '<div class="row">føles '+fmt(v.apparent_temperature)+'°</div>'
@@ -1355,7 +1362,7 @@ function renderWeek(){
       out+='<span class="wkc hit'+(isSel?" sel":(isTop?" top":""))+'" data-di="'+D.di+'" data-hh="'+c.hh+'"'
          + ' style="background:'+band(c.sc).c+'" title="'+dayName(D.day,D.k)+' '+String(c.hh).padStart(2,"0")+':00 · '+c.sc+' %"></span>';
     });
-    out+='<div class="wksc" data-di="'+D.di+'" style="color:'+band(D.best).c+'">'+D.best+'</div>';
+    out+='<div class="wksc" data-di="'+D.di+'" style="color:'+band(D.best).tc+'">'+D.best+'</div>';
   });
   grid.innerHTML=out;
 
@@ -1370,9 +1377,9 @@ function renderWeek(){
   const b = band(val);
   const isTopSel = cell && top.di===D.di && top.hh===cell.hh;
   el("weekOut").innerHTML =
-      '<div class="v" style="color:'+b.c+'">'+val+'<span>%</span></div>'
+      '<div class="v" style="color:'+b.tc+'">'+val+'<span>%</span></div>'
     + '<div><div class="t">'+dayName(D.day,D.k)+(cell? " kl. "+String(cell.hh).padStart(2,"0") : ", bedste 2 timer")+' · '
-    + '<span style="color:'+b.c+'">'+b.t+'</span>'+(isTopSel? " · ugens bedste time":"")+spTxt+'</div>'
+    + '<span style="color:'+b.tc+'">'+b.t+'</span>'+(isTopSel? " · ugens bedste time":"")+spTxt+'</div>'
     + '<div class="m">'+dayMeta(wx,D.di,D.mud)+'</div></div>';
 
   const brugtEns = days.some(D=>D.cells.some(c=>c && c.spread));
@@ -1474,7 +1481,7 @@ async function loadFor(lat,lon,label,namePromise,src){
   }catch(e){ setStatus(e.message,true); }
 }
 function setStatus(msg,isErr){
-  const s=el("status"); s.textContent=msg||""; s.style.color=isErr?"var(--band5)":"var(--ink-soft)";
+  const s=el("status"); s.textContent=msg||""; s.style.color=isErr?"var(--band5t)":"var(--ink-soft)";
 }
 
 el("btnNow").addEventListener("click",()=>{ S.viewDay=null; S.weekSel=null; render(); });
